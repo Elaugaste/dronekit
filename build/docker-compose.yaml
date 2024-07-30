@@ -1,0 +1,15 @@
+version: '3'
+volumes:
+  db:
+
+services:
+  dronekit-server:
+    build:
+      context: ../
+      dockerfile: ./build/Dockerfile
+    volumes:
+      - db:/db
+    network_mode: host
+    env_file:
+      - ./build/env
+    command: ["/app", "-mode","server"]
