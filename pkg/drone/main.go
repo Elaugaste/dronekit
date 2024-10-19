@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"github.com/bluenviron/gomavlib/v3"
 	"github.com/bluenviron/gomavlib/v3/pkg/dialects/ardupilotmega"
+	"sync"
 )
 
 type Drone struct {
 	channel    *gomavlib.Channel
 	client     *gomavlib.Node
-	GpsUpdates chan server.Message
+	GpsUpdates *RingBuffer
 }
 
 func New() (*Drone, error) {
@@ -40,15 +41,61 @@ func New() (*Drone, error) {
 		}
 	}
 
-	gps := make(chan server.Message)
 	dr := Drone{
 		channel:    d,
 		client:     node,
-		GpsUpdates: gps,
+		GpsUpdates: NewRingBuffer(8),
 	}
 
 	go dr.gpsUpdater()
 	return &dr, nil
+}
+
+type RingBuffer struct {
+	buffer []server.Message
+	size   int
+	head   int
+	tail   int
+	mutex  sync.Mutex
+}
+
+// Создание нового кольцевого буфера
+func NewRingBuffer(size int) *RingBuffer {
+	return &RingBuffer{
+		buffer: make([]server.Message, size),
+		size:   size,
+		head:   0,
+		tail:   0,
+	}
+}
+
+// Добавление элемента в буфер
+func (rb *RingBuffer) Push(msg server.Message) {
+	rb.mutex.Lock()
+	defer rb.mutex.Unlock()
+
+	// Проверка на переполнение
+	if (rb.tail+1)%rb.size == rb.head {
+		rb.head = (rb.head + 1) % rb.size // Перемещаем голову, чтобы освободить место
+	}
+
+	rb.buffer[rb.tail] = msg
+	rb.tail = (rb.tail + 1) % rb.size
+}
+
+// Извлечение элемента из буфера
+func (rb *RingBuffer) Pop() (server.Message, bool) {
+	rb.mutex.Lock()
+	defer rb.mutex.Unlock()
+
+	// Проверка на пустоту
+	if rb.head == rb.tail {
+		return server.Message{}, false
+	}
+
+	msg := rb.buffer[rb.head]
+	rb.head = (rb.head + 1) % rb.size
+	return msg, true
 }
 
 func (d *Drone) SendText(text string) {
@@ -67,12 +114,12 @@ func (d *Drone) gpsUpdater() {
 				//if msg.Lon == 0 {
 				//	continue
 				//}
-				d.GpsUpdates <- server.Message{
+				d.GpsUpdates.Push(server.Message{
 					Lat:     float64(msg.Lat) / 10000000,
 					Lon:     float64(msg.Lon) / 10000000,
 					Alt:     float64(msg.RelativeAlt) / 1000,
 					Heading: float64(msg.Hdg) / 100,
-				}
+				})
 			}
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"drone/pkg/api/client"
 	"drone/pkg/drone"
 	"drone/pkg/modem"
-	"fmt"
 	"time"
 )
 
@@ -39,14 +38,18 @@ func (kit *DroneKit) sendLinkState() {
 	for {
 		ls := <-kit.Modem.LinkState
 		kit.Drone.SendText(ls.String())
-		fmt.Println(ls.String())
 	}
 }
 
 func (kit *DroneKit) sendGPS() {
 	for {
-		msg := <-kit.Drone.GpsUpdates
-		time.Sleep(1 * time.Second)
+		msg, err := kit.Drone.GpsUpdates.Pop()
+		if err == false {
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
 		kit.BlackBox.SendWithTimeout(msg)
+		time.Sleep(1 * time.Second)
 	}
 }
